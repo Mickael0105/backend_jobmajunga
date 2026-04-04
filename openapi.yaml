@@ -1,0 +1,1139 @@
+openapi: 3.0.3
+info:
+  title: JobMajunga (Efiploi) API
+  version: 1.0.0
+  description: API REST centralisée (Node.js/Express/MySQL) pour WPF + Flutter.
+servers:
+  - url: https://api.jobmajunga.local/v1
+    description: Local/Dev (exemple)
+tags:
+  - name: Auth
+  - name: Profiles
+  - name: Jobs
+  - name: CV
+  - name: Applications
+  - name: Admin
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Inscription (candidat ou recruteur)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Compte créé
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Connexion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Tokens JWT
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Renouveler access token (refresh token)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        "200":
+          description: Nouvel access token (+ refresh token si rotation)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accessToken]
+                properties:
+                  accessToken: { type: string }
+                  refreshToken: { type: string, nullable: true }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Déconnexion (révoque refresh token)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        "204":
+          description: OK
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Profil utilisateur courant
+      responses:
+        "200":
+          description: User courant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Demander un email de réinitialisation mot de passe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "204":
+          description: OK (même réponse si email inconnu)
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Réinitialiser le mot de passe via token reçu par email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, token, newPassword]
+              properties:
+                email: { type: string, format: email }
+                token: { type: string }
+                newPassword: { type: string, minLength: 8 }
+      responses:
+        "204":
+          description: Mot de passe modifié
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /profiles/candidate/me:
+    get:
+      tags: [Profiles]
+      summary: Récupérer mon profil candidat
+      responses:
+        "200":
+          description: Profil candidat
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CandidateProfile"
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [Profiles]
+      summary: Mettre à jour mon profil candidat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CandidateProfileUpdate"
+      responses:
+        "200":
+          description: Profil candidat mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CandidateProfile"
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /profiles/recruiter/me:
+    get:
+      tags: [Profiles]
+      summary: Récupérer mon profil recruteur/entreprise
+      responses:
+        "200":
+          description: Profil recruteur
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecruiterProfile"
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [Profiles]
+      summary: Mettre à jour mon profil recruteur/entreprise
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecruiterProfileUpdate"
+      responses:
+        "200":
+          description: Profil recruteur mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecruiterProfile"
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /jobs:
+    get:
+      tags: [Jobs]
+      security: []
+      summary: Liste offres (publique)
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+          description: Recherche texte
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [published]
+          description: Public = published uniquement
+        - in: query
+          name: contractType
+          schema:
+            type: string
+            enum: [CDI, CDD, Freelance, Stage, Alternance]
+        - in: query
+          name: location
+          schema: { type: string }
+        - in: query
+          name: category
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: Liste paginée
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedJobOffers"
+    post:
+      tags: [Jobs]
+      summary: Créer une offre (recruteur)
+      responses:
+        "201":
+          description: Offre créée
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobOffer"
+        "403": { $ref: "#/components/responses/Forbidden" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobOfferCreate"
+
+  /jobs/mine:
+    get:
+      tags: [Jobs]
+      summary: Liste des offres appartenant au recruteur connecté (ou toutes pour admin)
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [draft, pending_approval, published, expired, archived]
+      responses:
+        "200":
+          description: Offres du recruteur/admin
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/JobOffer" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /jobs/manage/{id}:
+    get:
+      tags: [Jobs]
+      summary: Détail d’une offre pour gestion interne (recruteur propriétaire ou admin)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Offre (tous statuts)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobOffer"
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /jobs/{id}:
+    get:
+      tags: [Jobs]
+      security: []
+      summary: Détail offre (publique si publiée)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Offre
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobOffer"
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [Jobs]
+      summary: Modifier une offre (recruteur propriétaire ou admin)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobOfferUpdate"
+      responses:
+        "200":
+          description: Offre mise à jour
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobOffer"
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Jobs]
+      summary: Supprimer une offre (recruteur propriétaire ou admin)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "204": { description: Supprimée }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /jobs/{id}/duplicate:
+    post:
+      tags: [Jobs]
+      summary: Dupliquer une offre (recruteur)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "201":
+          description: Offre dupliquée
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobOffer"
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /jobs/{id}/submit:
+    post:
+      tags: [Jobs]
+      summary: Soumettre une offre à approbation (recruteur)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Statut mis à pending_approval
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobOffer"
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /jobs/{id}/approve:
+    post:
+      tags: [Jobs]
+      summary: Approuver et publier (admin)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Publiée
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobOffer"
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /jobs/{id}/archive:
+    post:
+      tags: [Jobs]
+      summary: Archiver une offre (recruteur propriétaire ou admin)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Archivée
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobOffer"
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /jobs/{id}/view:
+    post:
+      tags: [Jobs]
+      security: []
+      summary: Incrémenter compteur de vues (publique)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "204": { description: OK }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /cvs:
+    get:
+      tags: [CV]
+      summary: Liste de mes CV (candidat)
+      responses:
+        "200":
+          description: CVs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CV" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [CV]
+      summary: Créer un CV (candidat)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CVCreate" }
+      responses:
+        "201":
+          description: CV créé
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CV" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /cvs/{id}:
+    get:
+      tags: [CV]
+      summary: Détail d’un CV (candidat propriétaire, recruteur si candidature liée)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: CV
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CVWithSections" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [CV]
+      summary: Mettre à jour un CV (candidat)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CVUpdate" }
+      responses:
+        "200":
+          description: CV mis à jour
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CV" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [CV]
+      summary: Supprimer un CV (candidat)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "204": { description: Supprimé }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /cvs/{id}/sections:
+    put:
+      tags: [CV]
+      summary: Remplacer les sections JSON d’un CV (candidat)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items: { $ref: "#/components/schemas/CVSectionUpsert" }
+      responses:
+        "200":
+          description: Sections mises à jour
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CVSection" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /applications:
+    get:
+      tags: [Applications]
+      summary: Liste candidatures (candidat = les siennes, recruteur = sur ses offres)
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [sent, viewed, reviewing, interview, accepted, rejected]
+        - in: query
+          name: jobOfferId
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: Liste paginée
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedApplications"
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Applications]
+      summary: Postuler à une offre (candidat)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApplicationCreate" }
+      responses:
+        "201":
+          description: Candidature créée
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Application" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /applications/{id}:
+    get:
+      tags: [Applications]
+      summary: Détail candidature (candidat propriétaire ou recruteur propriétaire de l’offre)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Candidature
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Application" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /applications/{id}/status:
+    patch:
+      tags: [Applications]
+      summary: Changer statut (recruteur ou admin, progression seulement)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [viewed, reviewing, interview, accepted, rejected]
+      responses:
+        "200":
+          description: Candidature mise à jour
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Application" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /applications/{id}/notes:
+    patch:
+      tags: [Applications]
+      summary: Notes internes recruteur (recruteur propriétaire)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recruiterNotes]
+              properties:
+                recruiterNotes: { type: string, nullable: true }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Application" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /applications/{id}/interview:
+    patch:
+      tags: [Applications]
+      summary: Planifier entretien (recruteur propriétaire)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [interviewDate]
+              properties:
+                interviewDate:
+                  type: string
+                  format: date-time
+                location:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Application" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/stats:
+    get:
+      tags: [Admin]
+      summary: KPIs globaux
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminStats" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: Liste utilisateurs
+      parameters:
+        - in: query
+          name: role
+          schema: { type: string, enum: [candidate, recruiter, admin] }
+        - in: query
+          name: isActive
+          schema: { type: boolean }
+        - in: query
+          name: q
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: Liste paginée
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaginatedUsers" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/users/{id}:
+    patch:
+      tags: [Admin]
+      summary: Activer/désactiver/changer rôle
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                isActive: { type: boolean }
+                role:
+                  type: string
+                  enum: [candidate, recruiter, admin]
+      responses:
+        "200":
+          description: User mis à jour
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Admin]
+      summary: Supprimer un compte (cascade)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "204": { description: Supprimé }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    BadRequest:
+      description: Requête invalide
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Non authentifié / token invalide
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Accès interdit (RBAC)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Ressource introuvable
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: Conflit (ex. déjà existant / règle métier)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooManyRequests:
+      description: Trop de requêtes
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
+        code: { type: string, nullable: true }
+
+    RegisterRequest:
+      type: object
+      required: [email, password, role, consent]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        role:
+          type: string
+          enum: [candidate, recruiter]
+        consent:
+          type: boolean
+          description: Consentement RGPD explicite
+        candidateProfile:
+          $ref: "#/components/schemas/CandidateProfileCreate"
+        recruiterProfile:
+          $ref: "#/components/schemas/RecruiterProfileCreate"
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    AuthResponse:
+      type: object
+      required: [accessToken, refreshToken, user]
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        user: { $ref: "#/components/schemas/User" }
+
+    User:
+      type: object
+      required: [id, email, role, isActive, createdAt, updatedAt]
+      properties:
+        id: { type: integer }
+        email: { type: string, format: email }
+        role: { type: string, enum: [candidate, recruiter, admin] }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    CandidateProfile:
+      type: object
+      required: [userId, firstName, lastName]
+      properties:
+        userId: { type: integer }
+        firstName: { type: string }
+        lastName: { type: string }
+        phone: { type: string, nullable: true }
+        title: { type: string, nullable: true }
+        location: { type: string, nullable: true }
+        bio: { type: string, nullable: true }
+        photoUrl: { type: string, nullable: true }
+
+    CandidateProfileCreate:
+      allOf:
+        - $ref: "#/components/schemas/CandidateProfileUpdate"
+        - type: object
+          required: [firstName, lastName]
+
+    CandidateProfileUpdate:
+      type: object
+      properties:
+        firstName: { type: string }
+        lastName: { type: string }
+        phone: { type: string, nullable: true }
+        title: { type: string, nullable: true }
+        location: { type: string, nullable: true }
+        bio: { type: string, nullable: true }
+        photoUrl: { type: string, nullable: true }
+
+    RecruiterProfile:
+      type: object
+      required: [userId, companyName]
+      properties:
+        userId: { type: integer }
+        companyName: { type: string }
+        logoUrl: { type: string, nullable: true }
+        description: { type: string, nullable: true }
+        website: { type: string, nullable: true }
+        sector: { type: string, nullable: true }
+
+    RecruiterProfileCreate:
+      allOf:
+        - $ref: "#/components/schemas/RecruiterProfileUpdate"
+        - type: object
+          required: [companyName]
+
+    RecruiterProfileUpdate:
+      type: object
+      properties:
+        companyName: { type: string }
+        logoUrl: { type: string, nullable: true }
+        description: { type: string, nullable: true }
+        website: { type: string, nullable: true }
+        sector: { type: string, nullable: true }
+
+    JobOffer:
+      type: object
+      required: [id, recruiterId, title, description, contractType, status, viewsCount, createdAt, updatedAt]
+      properties:
+        id: { type: integer }
+        recruiterId: { type: integer }
+        title: { type: string }
+        description: { type: string }
+        contractType:
+          type: string
+          enum: [CDI, CDD, Freelance, Stage, Alternance]
+        location: { type: string, nullable: true }
+        latitude: { type: number, nullable: true }
+        longitude: { type: number, nullable: true }
+        salaryMin: { type: number, nullable: true }
+        salaryMax: { type: number, nullable: true }
+        category: { type: string, nullable: true }
+        skills:
+          type: array
+          items: { type: string }
+        status:
+          type: string
+          enum: [draft, pending_approval, published, expired, archived]
+        viewsCount: { type: integer, minimum: 0 }
+        expiresAt: { type: string, format: date, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    JobOfferCreate:
+      type: object
+      required: [title, description, contractType]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        contractType:
+          type: string
+          enum: [CDI, CDD, Freelance, Stage, Alternance]
+        location: { type: string, nullable: true }
+        latitude: { type: number, nullable: true }
+        longitude: { type: number, nullable: true }
+        salaryMin: { type: number, nullable: true }
+        salaryMax: { type: number, nullable: true }
+        category: { type: string, nullable: true }
+        skills:
+          type: array
+          items: { type: string }
+        expiresAt: { type: string, format: date, nullable: true }
+
+    JobOfferUpdate:
+      allOf:
+        - $ref: "#/components/schemas/JobOfferCreate"
+        - type: object
+          properties:
+            status:
+              type: string
+              enum: [draft, pending_approval, published, expired, archived]
+
+    PaginatedJobOffers:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/JobOffer" }
+        page: { type: integer }
+        pageSize: { type: integer }
+        total: { type: integer }
+
+    CV:
+      type: object
+      required: [id, candidateId, title, templateId, colorTheme, isPublic, createdAt, updatedAt]
+      properties:
+        id: { type: integer }
+        candidateId: { type: integer }
+        title: { type: string }
+        templateId: { type: string }
+        colorTheme: { type: string }
+        isPublic: { type: boolean }
+        publicToken: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    CVWithSections:
+      allOf:
+        - $ref: "#/components/schemas/CV"
+        - type: object
+          required: [sections]
+          properties:
+            sections:
+              type: array
+              items: { $ref: "#/components/schemas/CVSection" }
+
+    CVCreate:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        templateId: { type: string, nullable: true }
+        colorTheme: { type: string, nullable: true }
+        isPublic: { type: boolean, nullable: true }
+
+    CVUpdate:
+      allOf:
+        - $ref: "#/components/schemas/CVCreate"
+        - type: object
+
+    CVSection:
+      type: object
+      required: [id, cvId, sectionType, displayOrder, isVisible, content]
+      properties:
+        id: { type: integer }
+        cvId: { type: integer }
+        sectionType:
+          type: string
+          enum: [summary, experience, education, skills, languages, certifications, projects, interests]
+        displayOrder: { type: integer, minimum: 0 }
+        isVisible: { type: boolean }
+        content:
+          type: object
+          additionalProperties: true
+
+    CVSectionUpsert:
+      type: object
+      required: [sectionType, content]
+      properties:
+        id: { type: integer, nullable: true }
+        sectionType:
+          type: string
+          enum: [summary, experience, education, skills, languages, certifications, projects, interests]
+        displayOrder: { type: integer, minimum: 0, nullable: true }
+        isVisible: { type: boolean, nullable: true }
+        content:
+          type: object
+          additionalProperties: true
+
+    Application:
+      type: object
+      required: [id, candidateId, jobOfferId, cvId, status, appliedAt, updatedAt]
+      properties:
+        id: { type: integer }
+        candidateId: { type: integer }
+        jobOfferId: { type: integer }
+        cvId: { type: integer }
+        coverLetter: { type: string, nullable: true }
+        status:
+          type: string
+          enum: [sent, viewed, reviewing, interview, accepted, rejected]
+        recruiterNotes: { type: string, nullable: true }
+        interviewDate: { type: string, format: date-time, nullable: true }
+        appliedAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ApplicationCreate:
+      type: object
+      required: [jobOfferId, cvId]
+      properties:
+        jobOfferId: { type: integer, minimum: 1 }
+        cvId: { type: integer, minimum: 1 }
+        coverLetter: { type: string, nullable: true }
+
+    PaginatedApplications:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Application" }
+        page: { type: integer }
+        pageSize: { type: integer }
+        total: { type: integer }
+
+    AdminStats:
+      type: object
+      required: [usersActive, jobsPublished, applicationsToday]
+      properties:
+        usersActive: { type: integer }
+        jobsPublished: { type: integer }
+        applicationsToday: { type: integer }
+
+    PaginatedUsers:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/User" }
+        page: { type: integer }
+        pageSize: { type: integer }
+        total: { type: integer }
+
