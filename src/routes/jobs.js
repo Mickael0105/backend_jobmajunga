@@ -102,52 +102,21 @@ jobsRouter.get(
       const pageSize = Number(req.query.pageSize ?? 20);
       const offset = (page - 1) * pageSize;
 
-      const filters = [];
-      const params = { limit: pageSize, offset };
+     const filters = [];
+const params = {};
 
-      filters.push(`status = 'published'`);
+const safePageSize = Number.isFinite(pageSize)
+  ? Math.min(Math.max(pageSize, 1), 100)
+  : 20;
+const safeOffset = Number.isFinite(offset) ? Math.max(offset, 0) : 0;
 
-      if (req.query.contractType) {
-        filters.push(`contract_type = :contractType`);
-        params.contractType = String(req.query.contractType);
-      }
-      if (req.query.location) {
-        filters.push(`location LIKE :location`);
-        params.location = `%${String(req.query.location)}%`;
-      }
-      if (req.query.category) {
-        filters.push(`category = :category`);
-        params.category = String(req.query.category);
-      }
-      if (req.query.q) {
-        filters.push(`MATCH(title, description) AGAINST (:q IN NATURAL LANGUAGE MODE)`);
-        params.q = String(req.query.q);
-      }
-      if (req.query.salaryMin) {
-        filters.push(`(salary_max >= :salaryMin OR salary_max IS NULL)`);
-        params.salaryMin = Number(req.query.salaryMin);
-      }
-      if (req.query.salaryMax) {
-        filters.push(`(salary_min <= :salaryMax OR salary_min IS NULL)`);
-        params.salaryMax = Number(req.query.salaryMax);
-      }
-      if (req.query.lat && req.query.lng && req.query.radius) {
-        filters.push(`(6371 * acos(cos(radians(:lat)) * cos(radians(latitude)) * cos(radians(longitude) - radians(:lng)) + sin(radians(:lat)) * sin(radians(latitude)))) <= :radius`);
-        params.lat = Number(req.query.lat);
-        params.lng = Number(req.query.lng);
-        params.radius = Number(req.query.radius);
-      }
+const rows = await query(
+  `SELECT * FROM job_offers ${where}
+   ORDER BY created_at DESC
+   LIMIT ${safePageSize} OFFSET ${safeOffset}`,
+  params,
+);
 
-      const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
-      const totalRows = await query(`SELECT COUNT(*) AS total FROM job_offers ${where}`, params);
-      const total = Number(totalRows[0]?.total ?? 0);
-
-      const rows = await query(
-        `SELECT * FROM job_offers ${where}
-         ORDER BY created_at DESC
-         LIMIT :limit OFFSET :offset`,
-        params,
-      );
 
       res.json({
         items: rows.map(mapJobRow),
