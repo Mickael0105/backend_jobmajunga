@@ -11,6 +11,7 @@ import YAML from "yamljs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import { initDb } from "./db/init.js";
 import { errorHandler, notFoundHandler } from "./middleware/errors.js";
 import { authRouter } from "./routes/auth.js";
 import { profilesRouter } from "./routes/profiles.js";
@@ -70,8 +71,17 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 const port = Number(process.env.PORT ?? 3000);
-app.listen(port, () => {
-  // eslint-disable-next-line no-console
-  console.log(`[jobmajunga2] API listening on http://localhost:${port}`);
-});
+
+initDb()
+  .then(() => {
+    app.listen(port, () => {
+      // eslint-disable-next-line no-console
+      console.log(`[jobmajunga2] API listening on http://localhost:${port}`);
+    });
+  })
+  .catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[db] Failed to initialise schema — aborting startup", err);
+    process.exit(1);
+  });
 
