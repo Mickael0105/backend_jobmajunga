@@ -5,6 +5,13 @@ import { exec, query } from "../db/pool.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { validate } from "../middleware/validation.js";
 import { httpError } from "../middleware/errors.js";
+import { logActivity } from "../utils/logs.js";
+import { getSystemSettings } from "../utils/settings.js";
+import {
+  extractSkillsFromJob,
+  extractSkillsFromCvSections,
+  computeCompatibilityScore,
+} from "../utils/compatibility.js";
 
 export const jobsRouter = Router();
 
@@ -83,6 +90,49 @@ jobsRouter.get(
 );
 
 jobsRouter.get(
+  "/nearby",
+  q("lat").isFloat(),
+  q("lng").isFloat(),
+  q("radius").isFloat({ min: 0 }),
+  q("page").optional().isInt({ min: 1 }),
+  q("pageSize").optional().isInt({ min: 1, max: 100 }),
+  validate,
+  async (req, res, next) => {
+    try {
+      const page = Number(req.query.page ?? 1);
+      const pageSize = Number(req.query.pageSize ?? 20);
+      const offset = (page - 1) * pageSize;
+      const safePageSize = Number.isFinite(pageSize) ? Math.min(Math.max(pageSize, 1), 100) : 20;
+      const safeOffset = Number.isFinite(offset) ? Math.max(offset, 0) : 0;
+
+      const params = {
+        lat: Number(req.query.lat),
+        lng: Number(req.query.lng),
+        radius: Number(req.query.radius),
+      };
+
+      const where =
+        `WHERE status = 'published' AND ` +
+        `(6371 * acos(cos(radians(:lat)) * cos(radians(latitude)) * cos(radians(longitude) - radians(:lng)) + sin(radians(:lat)) * sin(radians(latitude)))) <= :radius`;
+
+      const totalRows = await query(`SELECT COUNT(*) AS total FROM job_offers ${where}`, params);
+      const total = Number(totalRows[0]?.total ?? 0);
+
+      const rows = await query(
+        `SELECT * FROM job_offers ${where}
+         ORDER BY created_at DESC
+         LIMIT ${safePageSize} OFFSET ${safeOffset}`,
+        params,
+      );
+
+      res.json({ items: rows.map(mapJobRow), page, pageSize, total });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+jobsRouter.get(
   "/",
   q("q").optional().isString(),
   q("contractType").optional().isIn(["CDI", "CDD", "Freelance", "Stage", "Alternance"]),
@@ -101,9 +151,11 @@ jobsRouter.get(
       const page = Number(req.query.page ?? 1);
       const pageSize = Number(req.query.pageSize ?? 20);
       const offset = (page - 1) * pageSize;
+      const safePageSize = Number.isFinite(pageSize) ? Math.min(Math.max(pageSize, 1), 100) : 20;
+      const safeOffset = Number.isFinite(offset) ? Math.max(offset, 0) : 0;
 
       const filters = [];
-      const params = { limit: pageSize, offset };
+      const params = {};
 
       filters.push(`status = 'published'`);
 
@@ -145,7 +197,7 @@ jobsRouter.get(
       const rows = await query(
         `SELECT * FROM job_offers ${where}
          ORDER BY created_at DESC
-         LIMIT :limit OFFSET :offset`,
+         LIMIT ${safePageSize} OFFSET ${safeOffset}`,
         params,
       );
 
@@ -179,6 +231,9 @@ jobsRouter.post(
   validate,
   async (req, res, next) => {
     try {
+      const settings = await getSystemSettings();
+      if (!settings.allowJobPostings) throw httpError(403, "Publication d'offres dÃ©sactivÃ©e");
+
       const b = req.body;
       const result = await exec(
         `INSERT INTO job_offers
@@ -221,6 +276,42 @@ jobsRouter.get(
       const job = rows[0];
       if (job.status !== "published") throw httpError(404, "Not found");
       res.json(mapJobRow(job));
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+jobsRouter.get(
+  "/:id/compatibility",
+  requireAuth,
+  requireRole("candidate"),
+  param("id").isInt({ min: 1 }),
+  q("cvId").isInt({ min: 1 }),
+  validate,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      const cvId = Number(req.query.cvId);
+
+      const jobRows = await query(`SELECT skills FROM job_offers WHERE id = :id`, { id });
+      if (jobRows.length === 0) throw httpError(404, "Not found");
+      const jobSkills = extractSkillsFromJob(jobRows[0].skills);
+
+      const cvRows = await query(`SELECT * FROM cvs WHERE id = :id`, { id: cvId });
+      if (cvRows.length === 0) throw httpError(404, "Not found");
+      if (Number(cvRows[0].candidate_id) !== Number(req.user.id)) throw httpError(403, "Forbidden");
+
+      const sections = await query(
+        `SELECT content FROM cv_sections WHERE cv_id = :cvId AND section_type = 'skills'`,
+        { cvId },
+      );
+      const cvSkills = extractSkillsFromCvSections(
+        sections.map((s) => ({ content: typeof s.content === "string" ? JSON.parse(s.content) : s.content })),
+      );
+
+      const score = computeCompatibilityScore(jobSkills, cvSkills);
+      res.json({ score });
     } catch (err) {
       next(err);
     }
@@ -290,6 +381,30 @@ jobsRouter.put(
         },
       );
 
+      const rows = await query(`SELECT * FROM job_offers WHERE id = :id`, { id });
+      if (rows.length === 0) throw httpError(404, "Not found");
+      res.json(mapJobRow(rows[0]));
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+jobsRouter.patch(
+  "/:id/status",
+  requireAuth,
+  requireRole("recruiter", "admin"),
+  param("id").isInt({ min: 1 }),
+  body("status").isIn(["draft", "pending_approval", "published", "expired", "archived"]),
+  validate,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      await assertRecruiterOwnsJobOrAdmin({ user: req.user, jobId: id });
+      await exec(
+        `UPDATE job_offers SET status = :status WHERE id = :id`,
+        { id, status: req.body.status },
+      );
       const rows = await query(`SELECT * FROM job_offers WHERE id = :id`, { id });
       if (rows.length === 0) throw httpError(404, "Not found");
       res.json(mapJobRow(rows[0]));
@@ -370,12 +485,20 @@ jobsRouter.post(
     try {
       const id = Number(req.params.id);
       await assertRecruiterOwnsJobOrAdmin({ user: req.user, jobId: id });
+      const settings = await getSystemSettings();
+      const nextStatus = settings.requireJobApproval ? "pending_approval" : "published";
       await exec(
-        `UPDATE job_offers SET status = 'pending_approval' WHERE id = :id AND status = 'draft'`,
-        { id },
+        `UPDATE job_offers SET status = :status WHERE id = :id AND status = 'draft'`,
+        { id, status: nextStatus },
       );
       const rows = await query(`SELECT * FROM job_offers WHERE id = :id`, { id });
       if (rows.length === 0) throw httpError(404, "Not found");
+      await logActivity({
+        userId: req.user.id,
+        action: "job_submitted",
+        message: `Job ${id} submitted`,
+        ipAddress: req.ip,
+      });
       res.json(mapJobRow(rows[0]));
     } catch (err) {
       next(err);
@@ -398,6 +521,12 @@ jobsRouter.post(
       );
       const rows = await query(`SELECT * FROM job_offers WHERE id = :id`, { id });
       if (rows.length === 0) throw httpError(404, "Not found");
+      await logActivity({
+        userId: req.user.id,
+        action: "job_approved",
+        message: `Job ${id} approved`,
+        ipAddress: req.ip,
+      });
       res.json(mapJobRow(rows[0]));
     } catch (err) {
       next(err);
@@ -443,4 +572,3 @@ jobsRouter.post(
     }
   },
 );
-
