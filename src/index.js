@@ -11,6 +11,7 @@ import YAML from "yamljs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import { initDb } from "./db/init.js";
 import { errorHandler, notFoundHandler } from "./middleware/errors.js";
 import { authRouter } from "./routes/auth.js";
 import { profilesRouter } from "./routes/profiles.js";
@@ -70,8 +71,19 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 const port = Number(process.env.PORT ?? 3000);
-app.listen(port, () => {
-  // eslint-disable-next-line no-console
-  console.log(`[jobmajunga2] API listening on http://localhost:${port}`);
-});
+
+(async () => {
+  try {
+    await initDb();
+    console.log("[db] Database initialization complete");
+  } catch (err) {
+    console.error("[db] Could not initialize database, aborting startup:", err.message);
+    process.exit(1);
+  }
+
+  app.listen(port, () => {
+    // eslint-disable-next-line no-console
+    console.log(`[jobmajunga2] API listening on http://localhost:${port}`);
+  });
+})();
 
