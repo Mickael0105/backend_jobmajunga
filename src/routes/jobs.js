@@ -102,7 +102,7 @@ jobsRouter.get(
       const pageSize = Number(req.query.pageSize ?? 20);
       const offset = (page - 1) * pageSize;
 
-     const filters = [];
+    const filters = [];
 const params = {};
 
 const safePageSize = Number.isFinite(pageSize)
@@ -110,12 +110,17 @@ const safePageSize = Number.isFinite(pageSize)
   : 20;
 const safeOffset = Number.isFinite(offset) ? Math.max(offset, 0) : 0;
 
+const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+
+const totalRows = await query(`SELECT COUNT(*) AS total FROM job_offers ${where}`, params);
+
 const rows = await query(
   `SELECT * FROM job_offers ${where}
    ORDER BY created_at DESC
    LIMIT ${safePageSize} OFFSET ${safeOffset}`,
   params,
 );
+
 
 
       res.json({
