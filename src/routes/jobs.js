@@ -113,6 +113,7 @@ const safeOffset = Number.isFinite(offset) ? Math.max(offset, 0) : 0;
 const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
 
 const totalRows = await query(`SELECT COUNT(*) AS total FROM job_offers ${where}`, params);
+const total = Number(totalRows[0]?.total ?? 0);
 
 const rows = await query(
   `SELECT * FROM job_offers ${where}
