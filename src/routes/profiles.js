@@ -5,6 +5,7 @@ import { query, exec } from "../db/pool.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { validate } from "../middleware/validation.js";
 import { httpError } from "../middleware/errors.js";
+import { saveBase64Image } from "../utils/files.js";
 
 export const profilesRouter = Router();
 
@@ -38,10 +39,12 @@ profilesRouter.put(
   body("location").optional({ nullable: true }).isString(),
   body("bio").optional({ nullable: true }).isString(),
   body("photoUrl").optional({ nullable: true }).isString(),
+  body("photoData").optional({ nullable: true }).isString(),
   validate,
   async (req, res, next) => {
     try {
       const p = req.body ?? {};
+      const photoUrl = p.photoData ? saveBase64Image(p.photoData, "candidate") : (p.photoUrl ?? null);
       await exec(
         `UPDATE candidate_profiles
          SET first_name = COALESCE(:firstName, first_name),
@@ -60,7 +63,7 @@ profilesRouter.put(
           title: p.title ?? null,
           location: p.location ?? null,
           bio: p.bio ?? null,
-          photoUrl: p.photoUrl ?? null,
+          photoUrl,
         },
       );
       const rows = await query(
@@ -101,6 +104,7 @@ profilesRouter.put(
   requireRole("recruiter"),
   body("companyName").optional().isString(),
   body("logoUrl").optional({ nullable: true }).isString(),
+  body("logoData").optional({ nullable: true }).isString(),
   body("description").optional({ nullable: true }).isString(),
   body("website").optional({ nullable: true }).isString(),
   body("sector").optional({ nullable: true }).isString(),
@@ -108,6 +112,7 @@ profilesRouter.put(
   async (req, res, next) => {
     try {
       const p = req.body ?? {};
+      const logoUrl = p.logoData ? saveBase64Image(p.logoData, "logo") : (p.logoUrl ?? null);
       await exec(
         `UPDATE recruiter_profiles
          SET company_name = COALESCE(:companyName, company_name),
@@ -119,7 +124,7 @@ profilesRouter.put(
         {
           userId: req.user.id,
           companyName: p.companyName ?? null,
-          logoUrl: p.logoUrl ?? null,
+          logoUrl,
           description: p.description ?? null,
           website: p.website ?? null,
           sector: p.sector ?? null,
@@ -138,3 +143,22 @@ profilesRouter.put(
   },
 );
 
+profilesRouter.post(
+  "/photo",
+  requireAuth,
+  requireRole("candidate"),
+  body("photoData").isString().notEmpty(),
+  validate,
+  async (req, res, next) => {
+    try {
+      const photoUrl = saveBase64Image(req.body.photoData, "candidate");
+      await exec(
+        `UPDATE candidate_profiles SET photo_url = :photoUrl WHERE user_id = :userId`,
+        { userId: req.user.id, photoUrl },
+      );
+      res.json({ photoUrl });
+    } catch (err) {
+      next(err);
+    }
+  },
+);

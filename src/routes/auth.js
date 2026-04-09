@@ -10,6 +10,9 @@ import { httpError } from "../middleware/errors.js";
 import { requireAuth } from "../middleware/auth.js";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/jwt.js";
 import { sendPasswordResetEmail } from "../utils/mail.js";
+import { logActivity } from "../utils/logs.js";
+import { getSystemSettings } from "../utils/settings.js";
+import { saveBase64Image } from "../utils/files.js";
 
 export const authRouter = Router();
 
@@ -53,6 +56,9 @@ authRouter.post(
   validate,
   async (req, res, next) => {
     try {
+      const settings = await getSystemSettings();
+      if (!settings.allowRegistrations) throw httpError(403, "Inscriptions dÃ©sactivÃ©es");
+
       const { email, password, role, candidateProfile, recruiterProfile } = req.body;
 
       const passwordHash = await bcrypt.hash(String(password), 12);
@@ -86,13 +92,14 @@ authRouter.post(
       if (role === "recruiter") {
         const p = recruiterProfile ?? {};
         if (!p.companyName) throw httpError(400, "recruiterProfile.companyName requis");
+        const logoUrl = p.logoData ? saveBase64Image(p.logoData, "logo") : (p.logoUrl ?? null);
         await exec(
           `INSERT INTO recruiter_profiles (user_id, company_name, logo_url, description, website, sector)
            VALUES (:userId, :companyName, :logoUrl, :description, :website, :sector)`,
           {
             userId,
             companyName: p.companyName,
-            logoUrl: p.logoUrl ?? null,
+            logoUrl,
             description: p.description ?? null,
             website: p.website ?? null,
             sector: p.sector ?? null,
@@ -110,6 +117,13 @@ authRouter.post(
         userId,
         token: refreshToken,
         expiresAt: new Date(payload.exp * 1000),
+      });
+
+      await logActivity({
+        userId,
+        action: "user_registered",
+        message: `New ${role} registered`,
+        ipAddress: req.ip,
       });
 
       res.status(201).json({ accessToken, refreshToken, user: userRowToDto(user) });
@@ -248,6 +262,13 @@ authRouter.post(
       const resetUrl = `${baseUrl}?token=${encodeURIComponent(rawToken)}&email=${encodeURIComponent(email)}`;
       await sendPasswordResetEmail({ to: email, resetUrl });
 
+      await logActivity({
+        userId: user.id,
+        action: "password_reset_requested",
+        message: "Password reset requested",
+        ipAddress: req.ip,
+      });
+
       return res.status(204).send();
     } catch (err) {
       return next(err);
@@ -292,10 +313,16 @@ authRouter.post(
       // Revoke all refresh tokens (force re-login)
       await exec(`DELETE FROM refresh_tokens WHERE user_id = :userId`, { userId: user.id });
 
+      await logActivity({
+        userId: user.id,
+        action: "password_reset_completed",
+        message: "Password reset completed",
+        ipAddress: req.ip,
+      });
+
       res.status(204).send();
     } catch (err) {
       next(err);
     }
   },
 );
-

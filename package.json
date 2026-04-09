@@ -22,8 +22,8 @@
     "morgan": "^1.10.0",
     "mysql2": "^3.11.5",
     "nodemailer": "^6.9.16",
+    "pdfkit": "^0.15.2",
     "swagger-ui-express": "^5.0.1",
     "yamljs": "^0.3.0"
   }
 }
-
