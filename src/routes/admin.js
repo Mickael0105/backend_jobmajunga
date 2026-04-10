@@ -98,9 +98,13 @@ adminRouter.get(
       const page = Number(req.query.page ?? 1);
       const pageSize = Number(req.query.pageSize ?? 20);
       const offset = (page - 1) * pageSize;
+      const safePageSize = Number.isFinite(pageSize)
+        ? Math.min(Math.max(pageSize, 1), 100)
+        : 20;
+      const safeOffset = Number.isFinite(offset) ? Math.max(offset, 0) : 0;
 
       const filters = [];
-      const params = { limit: pageSize, offset };
+      const params = {};
 
       if (req.query.role) {
         filters.push(`role = :role`);
@@ -123,7 +127,7 @@ adminRouter.get(
         `SELECT id, email, role, is_active AS isActive, created_at AS createdAt, updated_at AS updatedAt
          FROM users ${where}
          ORDER BY created_at DESC
-         LIMIT :limit OFFSET :offset`,
+         LIMIT ${safePageSize} OFFSET ${safeOffset}`,
         params,
       );
 

@@ -37,13 +37,13 @@ export async function logError({ level = "error", message, stack = null }) {
 }
 
 export async function getActivityLogs({ limit = 200 }) {
+  const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Number(limit), 1), 500) : 200;
   const rows = await query(
     `SELECT l.id, u.email, l.action, l.message, l.created_at AS createdAt
      FROM activity_logs l
      LEFT JOIN users u ON u.id = l.user_id
      ORDER BY l.created_at DESC
-     LIMIT :limit`,
-    { limit },
+     LIMIT ${safeLimit}`,
   );
   return rows.map((r) => ({
     id: r.id,
@@ -56,12 +56,12 @@ export async function getActivityLogs({ limit = 200 }) {
 }
 
 export async function getErrorLogs({ limit = 200 }) {
+  const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Number(limit), 1), 500) : 200;
   const rows = await query(
     `SELECT id, level, message, created_at AS createdAt
      FROM error_logs
      ORDER BY created_at DESC
-     LIMIT :limit`,
-    { limit },
+     LIMIT ${safeLimit}`,
   );
   return rows.map((r) => ({
     id: r.id,
