@@ -98,6 +98,8 @@ CREATE TABLE applications (
   recruiter_notes TEXT,
   interview_date DATETIME,
   candidate_interview_status ENUM('pending','accepted','refused') DEFAULT 'pending',
+  viewed_at TIMESTAMP NULL,
+  reviewing_at TIMESTAMP NULL,
   applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_application (candidate_id, job_offer_id),

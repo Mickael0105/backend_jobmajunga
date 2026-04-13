@@ -28,6 +28,8 @@ function mapAppRow(r) {
     recruiterNotes: r.recruiter_notes,
     interviewDate: r.interview_date,
     candidateInterviewStatus: r.candidate_interview_status ?? "pending",
+    viewedAt: r.viewed_at,
+    reviewingAt: r.reviewing_at,
     appliedAt: r.applied_at,
     updatedAt: r.updated_at,
     compatibilityScore: r.compatibility_score ?? null,
@@ -418,7 +420,14 @@ applicationsRouter.patch(
       const newStatus = String(req.body.status);
       if (!canProgressApplicationStatus(a.status, newStatus)) throw httpError(400, "statut invalide");
 
-      await exec(`UPDATE applications SET status = :status WHERE id = :id`, { id, status: newStatus });
+      let timestampColumn = "";
+      if (newStatus === "viewed" && !a.viewed_at) {
+        timestampColumn = ", viewed_at = CURRENT_TIMESTAMP";
+      } else if (newStatus === "reviewing" && !a.reviewing_at) {
+        timestampColumn = ", reviewing_at = CURRENT_TIMESTAMP";
+      }
+
+      await exec(`UPDATE applications SET status = :status ${timestampColumn} WHERE id = :id`, { id, status: newStatus });
       let updated = await query(
         `SELECT a.*, j.title AS job_title, rp.company_name AS company_name,
                 CONCAT(cp.first_name, ' ', cp.last_name) AS candidate_name
