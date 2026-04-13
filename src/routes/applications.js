@@ -27,6 +27,7 @@ function mapAppRow(r) {
     status: r.status,
     recruiterNotes: r.recruiter_notes,
     interviewDate: r.interview_date,
+    candidateInterviewStatus: r.candidate_interview_status ?? "pending",
     appliedAt: r.applied_at,
     updatedAt: r.updated_at,
     compatibilityScore: r.compatibility_score ?? null,
@@ -499,9 +500,51 @@ applicationsRouter.patch(
       );
       if (ok.length === 0) throw httpError(403, "Forbidden");
 
-      await exec(`UPDATE applications SET interview_date = :dt WHERE id = :id`, {
+      await exec(`UPDATE applications SET interview_date = :dt, candidate_interview_status = 'pending' WHERE id = :id`, {
         id,
         dt: new Date(req.body.interviewDate),
+      });
+
+      let updated = await query(
+        `SELECT a.*, j.title AS job_title, rp.company_name AS company_name,
+                CONCAT(cp.first_name, ' ', cp.last_name) AS candidate_name
+         FROM applications a
+         JOIN job_offers j ON j.id = a.job_offer_id
+         LEFT JOIN recruiter_profiles rp ON rp.user_id = j.recruiter_id
+         LEFT JOIN candidate_profiles cp ON cp.user_id = a.candidate_id
+         WHERE a.id = :id`,
+        { id },
+      );
+      updated = await attachCompatibilityScores(updated);
+      res.json(mapAppRow(updated[0]));
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+applicationsRouter.patch(
+  "/:id/interview-response",
+  requireAuth,
+  requireRole("candidate"),
+  param("id").isInt({ min: 1 }),
+  body("response").isIn(["accepted", "refused"]),
+  validate,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      const rows = await query(`SELECT * FROM applications WHERE id = :id`, { id });
+      if (rows.length === 0) throw httpError(404, "Not found");
+      const a = rows[0];
+
+      if (Number(a.candidate_id) !== Number(req.user.id)) {
+        throw httpError(403, "Forbidden");
+      }
+
+      const responseStatus = req.body.response;
+      await exec(`UPDATE applications SET candidate_interview_status = :status WHERE id = :id`, {
+        id,
+        status: responseStatus,
       });
 
       let updated = await query(

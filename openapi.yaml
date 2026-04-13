@@ -720,6 +720,36 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /applications/{id}/interview-response:
+    patch:
+      tags: [Applications]
+      summary: Accepter ou refuser un entretien (candidat propriétaire)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [response]
+              properties:
+                response:
+                  type: string
+                  enum: [accepted, refused]
+      responses:
+        "200":
+          description: Réponse enregistrée
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Application" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /admin/stats:
     get:
       tags: [Admin]
@@ -1096,6 +1126,9 @@ components:
           enum: [sent, viewed, reviewing, interview, accepted, rejected]
         recruiterNotes: { type: string, nullable: true }
         interviewDate: { type: string, format: date-time, nullable: true }
+        candidateInterviewStatus:
+          type: string
+          enum: [pending, accepted, refused]
         appliedAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
 
