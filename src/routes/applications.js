@@ -500,7 +500,7 @@ applicationsRouter.patch(
       );
       if (ok.length === 0) throw httpError(403, "Forbidden");
 
-      await exec(`UPDATE applications SET interview_date = :dt, candidate_interview_status = 'pending' WHERE id = :id`, {
+      await exec(`UPDATE applications SET interview_date = :dt, candidate_interview_status = 'pending', status = 'interview' WHERE id = :id`, {
         id,
         dt: new Date(req.body.interviewDate),
       });
